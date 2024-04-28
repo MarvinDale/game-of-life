@@ -1,5 +1,4 @@
 #include <iostream>
-#include <windows.h>
 #include <stdint.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -97,34 +96,35 @@ int WINAPI WinMain(HINSTANCE hInst,
     ID3D11Device* device;
     D3D_FEATURE_LEVEL featureLevel;
     ID3D11DeviceContext* d3dContext;
-    HRESULT result = D3D11CreateDeviceAndSwapChain(nullptr,
-                                                   D3D_DRIVER_TYPE_HARDWARE,
-                                                   nullptr,
-                                                   0,
-                                                   featureLevels,
-                                                   numberOfFeatureLevels,
-                                                   D3D11_SDK_VERSION,
-                                                   &swapChainDesc,
-                                                   &swapChain,
-                                                   &device,
-                                                   &featureLevel,
-                                                   &d3dContext);
+    HRESULT result = D3D11CreateDeviceAndSwapChain(
+                        nullptr, // default adapter
+                        D3D_DRIVER_TYPE_HARDWARE,
+                        nullptr, // no software rasterizer
+                        0,
+                        featureLevels,
+                        numberOfFeatureLevels,
+                        D3D11_SDK_VERSION,
+                        &swapChainDesc,
+                        &swapChain,
+                        &device,
+                        &featureLevel,
+                        &d3dContext);
 
     if(FAILED(result)) {
         std::cout << "Failed to create the Direct3D device and swapchain\n";
         return false;
     }
 
-    ID3D11RenderTargetView* backBufferTarget;
     ID3D11Texture2D* backBufferTexture;
-
     result = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D),
                                   (LPVOID*)&backBufferTexture);
 
     if(FAILED(result)) {
         std::cout << "Failed to get the get the swap chain buffer\n";
+        return false;
     }
 
+    ID3D11RenderTargetView* backBufferTarget;
     result = device->CreateRenderTargetView(backBufferTexture,
                                             0,
                                             &backBufferTarget);
@@ -138,6 +138,7 @@ int WINAPI WinMain(HINSTANCE hInst,
         return false;
     }
 
+    // bind views to output merger
     d3dContext->OMSetRenderTargets(1, &backBufferTarget, 0);
 
     D3D11_VIEWPORT viewport{};
@@ -155,17 +156,19 @@ int WINAPI WinMain(HINSTANCE hInst,
         DirectX::XMFLOAT3 pos;
     };
 
+    float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
     VertexPos vertices[] = {
-        DirectX::XMFLOAT3( 0.5f,  0.5f, 0.5f),
-        DirectX::XMFLOAT3( 0.5f, -0.5f, 0.5f),
-        DirectX::XMFLOAT3(-0.5f, -0.5f, 0.5f)
+        DirectX::XMFLOAT3(-0.5f,  0.5f * aspectRatio, 0.0f), // Top-left
+        DirectX::XMFLOAT3( 0.5f,  0.5f * aspectRatio, 0.0f), // Top-right
+        DirectX::XMFLOAT3(-0.5f, -0.5f * aspectRatio, 0.0f), // Bottom-left
+        DirectX::XMFLOAT3( 0.5f, -0.5f * aspectRatio, 0.0f)  // Bottom-right
     };
 
     D3D11_BUFFER_DESC vertexDesc{};
     
     vertexDesc.Usage = D3D11_USAGE_DEFAULT;
     vertexDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    vertexDesc.ByteWidth = sizeof(VertexPos) * 3;
+    vertexDesc.ByteWidth = sizeof(vertices);
 
     D3D11_SUBRESOURCE_DATA resourceData{};
 
@@ -178,14 +181,10 @@ int WINAPI WinMain(HINSTANCE hInst,
         std::cout << "Failed to create the vertex buffer\n";
     }
 
-    ID3D11VertexShader* solidColorVS;
-    ID3D11PixelShader* solidColorPS;
-    ID3D11InputLayout* inputLayout;
-
-    ID3DBlob* vsBuffer = 0;
+    ID3DBlob* vsBuffer = nullptr;
     DWORD shaderFlags = D3DCOMPILE_ENABLE_STRICTNESS;
 
-    ID3DBlob* errorBuffer = 0;
+    ID3DBlob* errorBuffer = nullptr;
     result = D3DCompileFromFile(L"vertex.fx",
                                 nullptr, nullptr,
                                 "VS_Main",
@@ -201,6 +200,7 @@ int WINAPI WinMain(HINSTANCE hInst,
         }
     }
     
+    ID3D11VertexShader* solidColorVS;
     result = device->CreateVertexShader(vsBuffer->GetBufferPointer(),
                                         vsBuffer->GetBufferSize(),
                                         0,
@@ -218,6 +218,7 @@ int WINAPI WinMain(HINSTANCE hInst,
 
     unsigned int totalLayoutElements = ARRAYSIZE(vertexLayout);
 
+    ID3D11InputLayout* inputLayout;
     result = device->CreateInputLayout(vertexLayout,
                                        totalLayoutElements,
                                        vsBuffer->GetBufferPointer(),
@@ -247,6 +248,7 @@ int WINAPI WinMain(HINSTANCE hInst,
         }
     }
 
+    ID3D11PixelShader* solidColorPS;
     result = device->CreatePixelShader(psBuffer->GetBufferPointer(),
                                        psBuffer->GetBufferSize(),
                                        0,
@@ -258,7 +260,7 @@ int WINAPI WinMain(HINSTANCE hInst,
     }
 
     // render code start
-    float clearColor[4] = { 0.25f, 0.25f, 1.0f, 1.0f };
+    float clearColor[4] = { 0.2f, 0.2f, 0.2f, 1.0f };
     d3dContext->ClearRenderTargetView(backBufferTarget, clearColor);
 
     unsigned int stride = sizeof(VertexPos);
@@ -266,12 +268,13 @@ int WINAPI WinMain(HINSTANCE hInst,
 
     d3dContext->IASetInputLayout(inputLayout);
     d3dContext->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
-    d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    d3dContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
     d3dContext->VSSetShader(solidColorVS, 0, 0);
     d3dContext->PSSetShader(solidColorPS, 0, 0);
-    d3dContext->Draw(3, 0);
+    d3dContext->Draw(4, 0);
 
+    // swap front and back buffers
     swapChain->Present(0, 0);
     // render code end
 
